@@ -1,5 +1,3 @@
-Here's the complete and corrected code:
-
 Project Structure
 ```
 bash
