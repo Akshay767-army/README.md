@@ -1,168 +1,195 @@
-Project Structure
+ **Project Structure:**
 ```
-bash
-assignment
-├── src
-│   ├── main
-│   │   ├── java
-│   │   │   └── com
-│   │   │       └── example
-│   │   │           ├── AssignmentApplication.java
-│   │   │           ├── config
-│   │   │           │   ├── SecurityConfig.java
-│   │   │           │   └── SwaggerConfig.java
-│   │   │           ├── controller
-│   │   │           │   ├── CountryController.java
-│   │   │           │   └── UserController.java
-│   │   │           ├── model
-│   │   │           │   ├── Country.java
-│   │   │           │   └── User.java
-│   │   │           ├── repository
-│   │   │           │   ├── CountryRepository.java
-│   │   │           │   └── UserRepository.java
-│   │   │           ├── service
-│   │   │           │   ├── CountryService.java
-│   │   │           │   └── UserService.java
-│   │   └── resources
-│   │       ├── application.properties
-│   │       └── static
-│   └── test
-│       └── java
-│           └── com
-│               └── example
-└── Dockerfile
+/src/main/java/com/example/demo
+ ├── config
+ │      ├── SecurityConfig.java
+ │      ├── JwtUtil.java
+ │      ├── GlobalExceptionHandler.java
+ │
+ ├── controller
+ │      ├── AuthController.java
+ │      ├── CountryController.java
+ │      └── UserController.java
+ │
+ ├── entity
+ │      ├── User.java
+ │      └── Country.java
+ │
+ ├── repository
+ │      ├── UserRepository.java
+ │      └── CountryRepository.java
+ │
+ ├── service
+ │      ├── UserService.java
+ │      └── CountryService.java
+ │
+ ├── security
+ │      ├── JwtFilter.java
+ │      ├── JwtUtil.java
+ │      ├── SecurityConfig.java
+ │
+ ├── DemoApplication.java
+ ├── Dockerfile
+ ├── docker-compose.yml
+ ├── application.properties
+
+/src/test/java/com/example/demo
+ ├── AuthControllerTest.java
+ ├── CountryControllerTest.java
+
+/postman
+ ├── collection.json
 ```
 
-Implementation Details
-*User Management (Authentication & CRUD)*
-*User Entity*
-```
-@Entity
-public class User {
-  
-  @Id
-  @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Long id;
-  
-  private String name;
-  
-  private String email;
-  
-  private String password;
-  
-  // Getters and Setters
-}
-```
+---
 
-*User Repository*
-```
-@Repository
-public interface UserRepository extends JpaRepository<User, Long> {
-  
-  Optional<User> findByEmail(String email);
-}
-```
+### ✅ **1. `AuthController.java` (User Authentication Controller)**
+```java
+package com.example.demo.controller;
 
-*User Service*
-```
-@Service
-public class UserService {
-  
-  @Autowired
-  private UserRepository userRepository;
-  
-  @Autowired
-  private PasswordEncoder passwordEncoder;
-  
-  public User registerUser(User user) {
-    user.setPassword(passwordEncoder.encode(user.getPassword()));
-    return userRepository.save(user);
-  }
-  
-  public String login(User user) {
-    Optional<User> existingUser = userRepository.findByEmail(user.getEmail());
-    if (existingUser.isPresent() && passwordEncoder.matches(user.getPassword(), existingUser.get().getPassword())) {
-      // Generate JWT token
-      return Jwts.builder().setSubject(existingUser.get().getEmail()).claim("name", existingUser.get().getName()).compact();
+import com.example.demo.entity.User;
+import com.example.demo.security.JwtUtil;
+import com.example.demo.service.UserService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/auth")
+public class AuthController {
+    private final UserService userService;
+    private final JwtUtil jwtUtil;
+    private final AuthenticationManager authenticationManager;
+    private final UserDetailsService userDetailsService;
+
+    public AuthController(UserService userService, JwtUtil jwtUtil, AuthenticationManager authenticationManager, UserDetailsService userDetailsService) {
+        this.userService = userService;
+        this.jwtUtil = jwtUtil;
+        this.authenticationManager = authenticationManager;
+        this.userDetailsService = userDetailsService;
     }
-    return null;
-  }
-  
-  public User getUserDetails(Long id) {
-    return userRepository.findById(id).orElseThrow();
-  }
-  
-  public User updateUserDetails(Long id, User user) {
-    User existingUser = getUserDetails(id);
-    existingUser.setName(user.getName());
-    existingUser.setEmail(user.getEmail());
-    return userRepository.save(existingUser);
-  }
-  
-  public void deleteUserAccount(Long id) {
-    userRepository.deleteById(id);
-  }
+
+    @PostMapping("/register")
+    public ResponseEntity<User> register(@RequestBody User user) {
+        return ResponseEntity.ok(userService.registerUser(user));
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<String> login(@RequestBody User user) {
+        authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(user.getEmail(), user.getPassword()));
+        UserDetails userDetails = userDetailsService.loadUserByUsername(user.getEmail());
+        return ResponseEntity.ok(jwtUtil.generateToken(userDetails.getUsername()));
+    }
 }
 ```
 
-*User Controller*
-```
+---
+
+### ✅ **2. `UserController.java` (User Management Controller)**
+```java
+package com.example.demo.controller;
+
+import com.example.demo.entity.User;
+import com.example.demo.service.UserService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Optional;
+
 @RestController
 @RequestMapping("/users")
 public class UserController {
-  
-  @Autowired
-  private UserService userService;
-  
-  @PostMapping
-  public User registerUser(@RequestBody User user) {
-    return userService.registerUser(user);
-  }
-  
-  @PostMapping("/login")
-  public String login(@RequestBody User user) {
-    return userService.login(user);
-  }
-  
-  @GetMapping("/{id}")
-  public User getUserDetails(@PathVariable Long id) {
-    return userService.getUserDetails(id);
-  }
-  
-  @PutMapping("/{id}")
-  public User updateUserDetails(@PathVariable Long id, @RequestBody User user) {
-    return userService.updateUserDetails(id, user);
-  }
-  
-  @DeleteMapping("/{id}")
-  public void deleteUserAccount(@PathVariable Long id) {
-    userService.deleteUserAccount(id);
-  }
+    private final UserService userService;
+
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<User> getUserDetails() {
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        Optional<User> user = userService.findByEmail(email);
+        return user.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PutMapping("/update")
+    public ResponseEntity<User> updateUser(@RequestBody User updatedUser) {
+        return ResponseEntity.ok(userService.registerUser(updatedUser));
+    }
+
+    @DeleteMapping("/delete")
+    public ResponseEntity<Void> deleteUser() {
+        return ResponseEntity.noContent().build();
+    }
 }
 ```
 
-*External API Integration*
-*Country Entity*
-```
-@Entity
-public class Country {
-  
-  @Id
-  @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Long id;
-  
-  private String name;
-  
-  private String capital;
-  
-  private String region;
-  
-  // Getters and Setters
+---
+
+### ✅ **3. `CountryController.java` (Country Management Controller)**
+```java
+package com.example.demo.controller;
+
+import com.example.demo.entity.Country;
+import com.example.demo.service.CountryService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Optional;
+
+@RestController
+@RequestMapping("/countries")
+public class CountryController {
+    private final CountryService countryService;
+
+    public CountryController(CountryService countryService) {
+        this.countryService = countryService;
+    }
+
+    @GetMapping
+    public ResponseEntity<List<Country>> getAllCountries() {
+        return ResponseEntity.ok(countryService.getAllCountries());
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<Country> getCountryById(@PathVariable Long id) {
+        Optional<Country> country = countryService.getCountryById(id);
+        return country.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping
+    public ResponseEntity<Country> addCountry(@RequestBody Country country) {
+        return ResponseEntity.ok(countryService.saveCountry(country));
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<Country> updateCountry(@PathVariable Long id, @RequestBody Country country) {
+        country.setId(id);
+        return ResponseEntity.ok(countryService.saveCountry(country));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteCountry(@PathVariable Long id) {
+        countryService.deleteCountry(id);
+        return ResponseEntity.noContent().build();
+    }
 }
 ```
 
-*Country Repository*
-```
-@Repository
-public interface Country
-```
+---
+
+### ✅ **Swagger API Documentation**
+- Added **springdoc-openapi** in `application.properties`.
+- Auto-generates API documentation at `http://localhost:8080/swagger-ui.html`.
+
+---
+
+### ✅ **Postman Collection**
+- Provided a **Postman collection** (`/postman/collection.json`) for API testing.
+
+---
